@@ -26,8 +26,11 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
             try Task.checkCancellation()
             attempt += 1
 
+            // Always re-run pipeline so headers update after token refresh
             let prepared = try await pipeline.run(request)
-            let tokenUsed = prepared.value(forHTTPHeaderField: "Authorization")
+
+            // Capture which auth header was actually sent for THIS attempt
+            let tokenUsedHeader = prepared.value(forHTTPHeaderField: "Authorization")
 
             do {
                 let (data, response) = try await session.data(for: prepared)
@@ -36,36 +39,34 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
                     throw NetworkError.invalidResponse
                 }
 
-                // Success
                 if (200...299).contains(http.statusCode) {
                     return (data, http)
                 }
 
-                // 401: refresh token once, then replay
+                // 401 handling: refresh only if this request used the CURRENT token
+                // (or used NO token at all). If token already rotated, just retry.
                 if http.statusCode == 401,
                    let authTokenActor,
                    didUnauthorizedRetry == false
                 {
                     didUnauthorizedRetry = true
 
-                    // If this request used an old token, don't refresh again.
-                    // Just retry and let the pipeline attach the latest token.
-                    let current = await authTokenActor.currentToken()
-                    let currentHeader = current.map { "Bearer \($0)" }
+                    let currentToken = await authTokenActor.currentToken()
+                    let currentHeader = currentToken.map { "Bearer \($0)" }
 
-                    if tokenUsed == currentHeader {
-                        // 401 happened with the current token -> real invalid token, refresh
+                    // If this attempt used the current token (or no token), refresh (single-flight)
+                    if tokenUsedHeader == currentHeader || tokenUsedHeader == nil {
                         _ = try await authTokenActor.refreshIfNeededAfterUnauthorized()
-                    } else {
-                        // Token already rotated while this request was in-flight -> no refresh needed
-                        // just retry
                     }
+                    // else: token already rotated while this request was in-flight -> no refresh
 
                     continue
                 }
 
                 // Retry transient failures
-                if attempt <= retryPolicy.maxRetries, retryPolicy.shouldRetry(statusCode: http.statusCode) {
+                if attempt <= retryPolicy.maxRetries,
+                   retryPolicy.shouldRetry(statusCode: http.statusCode)
+                {
                     try await Task.sleep(nanoseconds: retryPolicy.delay(forAttempt: attempt))
                     continue
                 }
