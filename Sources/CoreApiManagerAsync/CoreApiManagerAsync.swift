@@ -28,9 +28,14 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
 
             // Always re-run pipeline so headers update after token refresh
             let prepared = try await pipeline.run(request)
+            let authHeader = prepared.value(forHTTPHeaderField: "Authorization")
+            let tokenUsed: String? = {
+                guard let h = authHeader else { return nil }
+                if h.hasPrefix("Bearer ") { return String(h.dropFirst("Bearer ".count)) }
+                return nil
+            }()
 
             // Capture which auth header was actually sent for THIS attempt
-            let tokenUsedHeader = prepared.value(forHTTPHeaderField: "Authorization")
 
             do {
                 let (data, response) = try await session.data(for: prepared)
@@ -45,21 +50,9 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
 
                 // 401 handling: refresh only if this request used the CURRENT token
                 // (or used NO token at all). If token already rotated, just retry.
-                if http.statusCode == 401,
-                   let authTokenActor,
-                   didUnauthorizedRetry == false
-                {
+                if http.statusCode == 401, let authTokenActor, didUnauthorizedRetry == false {
                     didUnauthorizedRetry = true
-
-                    let currentToken = await authTokenActor.currentToken()
-                    let currentHeader = currentToken.map { "Bearer \($0)" }
-
-                    // If this attempt used the current token (or no token), refresh (single-flight)
-                    if tokenUsedHeader == currentHeader || tokenUsedHeader == nil {
-                        _ = try await authTokenActor.refreshIfNeededAfterUnauthorized()
-                    }
-                    // else: token already rotated while this request was in-flight -> no refresh
-
+                    _ = try await authTokenActor.refreshIfNeededAfterUnauthorized(tokenUsed: tokenUsed)
                     continue
                 }
 

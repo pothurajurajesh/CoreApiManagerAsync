@@ -20,14 +20,20 @@ public actor AuthTokenActor {
         token = newToken
     }
 
-    /// Call this only when we get a 401.
-    public func refreshIfNeededAfterUnauthorized() async throws -> String {
-        // If refresh already running, join it
+    /// Refresh only if the failing request used the current token.
+    /// If token already rotated, just return the current token (no extra refresh).
+    public func refreshIfNeededAfterUnauthorized(tokenUsed: String?) async throws -> String {
+        // If token already changed since this request was sent, don't refresh again.
+        if let current = token, let used = tokenUsed, current != used {
+            return current
+        }
+
+        // If refresh already running, join it.
         if let task = refreshTask {
             return try await task.value
         }
 
-        // Start a single refresh task
+        // Start a single refresh task.
         let task = Task { try await refresher.refreshToken() }
         refreshTask = task
 
