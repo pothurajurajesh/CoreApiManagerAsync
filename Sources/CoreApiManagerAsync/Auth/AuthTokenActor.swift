@@ -20,14 +20,14 @@ public actor AuthTokenActor {
         token = newToken
     }
 
-    /// Returns a valid token; if a refresh is already in-flight, callers will await the same Task.
-    public func validToken() async throws -> String {
-        if let token { return token }
-
-        if let refreshTask {
-            return try await refreshTask.value
+    /// Call this only when we get a 401.
+    public func refreshIfNeededAfterUnauthorized() async throws -> String {
+        // If refresh already running, join it
+        if let task = refreshTask {
+            return try await task.value
         }
 
+        // Start a single refresh task
         let task = Task { try await refresher.refreshToken() }
         refreshTask = task
 
@@ -40,11 +40,5 @@ public actor AuthTokenActor {
             refreshTask = nil
             throw error
         }
-    }
-
-    /// Used when we get a 401. Forces token invalidation and triggers (single-flight) refresh.
-    public func invalidateAndRefresh() async throws -> String {
-        token = nil
-        return try await validToken()
     }
 }

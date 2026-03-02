@@ -27,6 +27,7 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
             attempt += 1
 
             let prepared = try await pipeline.run(request)
+            let tokenUsed = prepared.value(forHTTPHeaderField: "Authorization")
 
             do {
                 let (data, response) = try await session.data(for: prepared)
@@ -46,8 +47,20 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
                    didUnauthorizedRetry == false
                 {
                     didUnauthorizedRetry = true
-                    _ = try await authTokenActor.invalidateAndRefresh()
-                    // Loop continues; pipeline will rerun and attach fresh token via interceptor
+
+                    // If this request used an old token, don't refresh again.
+                    // Just retry and let the pipeline attach the latest token.
+                    let current = await authTokenActor.currentToken()
+                    let currentHeader = current.map { "Bearer \($0)" }
+
+                    if tokenUsed == currentHeader {
+                        // 401 happened with the current token -> real invalid token, refresh
+                        _ = try await authTokenActor.refreshIfNeededAfterUnauthorized()
+                    } else {
+                        // Token already rotated while this request was in-flight -> no refresh needed
+                        // just retry
+                    }
+
                     continue
                 }
 
