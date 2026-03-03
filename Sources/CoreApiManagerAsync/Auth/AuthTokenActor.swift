@@ -16,15 +16,22 @@ public actor AuthTokenActor {
 
     public func currentToken() -> String? { token }
 
+    public func setToken(_ newToken: String?) {
+        token = newToken
+    }
+
     /// Call this only when we get a 401.
-    /// Refresh ONLY if the failing request used the current token (as an auth header).
+    /// Refresh only if the failing request used the CURRENT auth header.
     public func refreshIfNeededAfterUnauthorized(authHeaderUsed: String?) async throws -> String {
         let currentHeader = token.map { "Bearer \($0)" }
 
-        // If token already rotated since this request was sent, do not refresh again.
-        if let currentHeader, let used = authHeaderUsed, used != currentHeader {
-            // token changed; just return current token
-            return token! // safe because currentHeader exists implies token exists
+        // If token already rotated since this request was sent, don't refresh again.
+        if let currentHeader,
+           let used = authHeaderUsed,
+           used != currentHeader
+        {
+            // token exists because currentHeader exists
+            return token!
         }
 
         // If refresh already running, join it.

@@ -26,11 +26,9 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
             try Task.checkCancellation()
             attempt += 1
 
-            // Always re-run pipeline so headers update after token refresh
+            // Prepare request (inject latest token each attempt)
             let prepared = try await pipeline.run(request)
             let authHeaderUsed = prepared.value(forHTTPHeaderField: "Authorization")
-
-            // Capture which auth header was actually sent for THIS attempt
 
             do {
                 let (data, response) = try await session.data(for: prepared)
@@ -43,8 +41,7 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
                     return (data, http)
                 }
 
-                // 401 handling: refresh only if this request used the CURRENT token
-                // (or used NO token at all). If token already rotated, just retry.
+                // 401 handling: refresh gating lives in the actor (header-based, concurrency-safe)
                 if http.statusCode == 401,
                    let authTokenActor,
                    didUnauthorizedRetry == false

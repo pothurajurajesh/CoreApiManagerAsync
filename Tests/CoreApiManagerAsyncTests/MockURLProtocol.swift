@@ -1,13 +1,20 @@
 import Foundation
 
 final class MockURLProtocol: URLProtocol {
+    private static let lock = NSLock()
     static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard let handler = Self.handler else {
+        let handlerCopy: ((URLRequest) throws -> (HTTPURLResponse, Data))? = {
+            Self.lock.lock()
+            defer { Self.lock.unlock() }
+            return Self.handler
+        }()
+
+        guard let handler = handlerCopy else {
             fatalError("MockURLProtocol.handler not set")
         }
 

@@ -10,17 +10,17 @@ public protocol RequestInterceptor: Sendable {
 }
 
 public struct RequestPipeline: Sendable {
-    private let interceptors: [RequestInterceptor]
+    private let interceptors: [any RequestInterceptor]
 
-    public init(interceptors: [RequestInterceptor]) {
+    public init(interceptors: [any RequestInterceptor]) {
         self.interceptors = interceptors
     }
 
     public func run(_ request: URLRequest) async throws -> URLRequest {
-        var context = RequestContext(request: request)
-        for i in interceptors {
-            context = try await i.prepare(context)
+        var ctx = RequestContext(request: request)
+        for interceptor in interceptors {
+            ctx = try await interceptor.prepare(ctx)
         }
-        return context.request
+        return ctx.request
     }
 }

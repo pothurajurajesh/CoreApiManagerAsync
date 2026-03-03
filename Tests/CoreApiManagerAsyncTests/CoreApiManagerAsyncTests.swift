@@ -1,19 +1,12 @@
 import XCTest
 @testable import CoreApiManagerAsync
 
-actor MockRefresher: AuthTokenRefreshing {
-    private(set) var refreshCount: Int = 0
-
-    func refreshToken() async throws -> String {
-        refreshCount += 1
-        // Return a "valid" token
-        return "valid"
-    }
-
-    func count() async -> Int { refreshCount }
-}
-
 final class CoreApiManagerAsyncTests: XCTestCase {
+
+    override func tearDown() {
+        MockURLProtocol.handler = nil
+        super.tearDown()
+    }
 
     func test500ParallelRequestsTriggersSingleRefresh() async throws {
         let url = URL(string: "https://example.com/test")!
@@ -51,12 +44,10 @@ final class CoreApiManagerAsyncTests: XCTestCase {
             authTokenActor: tokenActor
         )
 
-        let request = URLRequest(url: url)
-
-        // 500 concurrent requests
         try await withThrowingTaskGroup(of: Void.self) { group in
             for _ in 0..<500 {
                 group.addTask {
+                    let request = URLRequest(url: url) // new per task (important for CI stability)
                     let (data, http) = try await api.request(request)
                     XCTAssertEqual(http.statusCode, 200)
                     XCTAssertEqual(String(data: data, encoding: .utf8), "ok")
@@ -68,4 +59,15 @@ final class CoreApiManagerAsyncTests: XCTestCase {
         let count = await refresher.count()
         XCTAssertEqual(count, 1, "Expected exactly 1 token refresh under concurrency")
     }
+}
+
+actor MockRefresher: AuthTokenRefreshing {
+    private var refreshCount = 0
+
+    func refreshToken() async throws -> String {
+        refreshCount += 1
+        return "valid"
+    }
+
+    func count() -> Int { refreshCount }
 }
