@@ -28,12 +28,7 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
 
             // Always re-run pipeline so headers update after token refresh
             let prepared = try await pipeline.run(request)
-            let authHeader = prepared.value(forHTTPHeaderField: "Authorization")
-            let tokenUsed: String? = {
-                guard let h = authHeader else { return nil }
-                if h.hasPrefix("Bearer ") { return String(h.dropFirst("Bearer ".count)) }
-                return nil
-            }()
+            let authHeaderUsed = prepared.value(forHTTPHeaderField: "Authorization")
 
             // Capture which auth header was actually sent for THIS attempt
 
@@ -50,9 +45,12 @@ public final class CoreApiManagerAsync: @unchecked Sendable {
 
                 // 401 handling: refresh only if this request used the CURRENT token
                 // (or used NO token at all). If token already rotated, just retry.
-                if http.statusCode == 401, let authTokenActor, didUnauthorizedRetry == false {
+                if http.statusCode == 401,
+                   let authTokenActor,
+                   didUnauthorizedRetry == false
+                {
                     didUnauthorizedRetry = true
-                    _ = try await authTokenActor.refreshIfNeededAfterUnauthorized(tokenUsed: tokenUsed)
+                    _ = try await authTokenActor.refreshIfNeededAfterUnauthorized(authHeaderUsed: authHeaderUsed)
                     continue
                 }
 
